@@ -1,0 +1,14 @@
+# Discord Bot
+discord.py>=2.3.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Database (SQLite - async support)
+aiosqlite>=0.19.0
+
+# Email
+aiosmtplib>=3.0.0
+
+# Utilities
+python-dateutil>=2.8.0
