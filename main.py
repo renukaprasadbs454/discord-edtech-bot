@@ -12,7 +12,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config import *
+import config
 
 # Load environment variables
 load_dotenv()
