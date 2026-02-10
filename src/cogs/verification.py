@@ -23,6 +23,7 @@ import random
 import string
 import logging
 import asyncio
+import itertools
 from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -45,8 +46,25 @@ class Verification(commands.Cog):
     
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.otp_cooldowns = {}  # Track OTP request cooldowns
-    
+        self.otp_cooldowns = {}
+        
+        # --- EMAIL SWITCHER CONFIG ---
+        email_str = os.getenv("SMTP_EMAILS", "")
+        pass_str = os.getenv("SMTP_PASSWORDS", "")
+        
+        self.emails = [e.strip() for e in email_str.split(",") if e.strip()]
+        self.passwords = [p.strip() for p in pass_str.split(",") if p.strip()]
+        
+        # Persistent counters for the current session
+        self.current_email_index = 0  # Which email are we using (0 to 7)
+        self.mail_counter = 0         # How many mails sent by CURRENT email
+        self.MAX_THRESHOLD = 1900     # Switch after 1900 emails
+        
+        if self.emails:
+            logger.info(f"🚀 Mail Switcher Ready: Starting with {self.emails[0]}")
+        else:
+            logger.warning("⚠️ No SMTP_EMAILS configured — OTP sending will fail until .env is set.")    
+        
     async def cog_load(self):
         """Called when the cog is loaded - initialize database"""
         await init_database()
@@ -233,24 +251,35 @@ class Verification(commands.Cog):
         return ''.join(random.choices(string.digits, k=length))
     
     async def send_otp_email(self, email: str, otp: str, name: str = "Student") -> bool:
-        """Send OTP code via email"""
+        """Send OTP using an email until it hits 1900, then switch to the next."""
         try:
-            # Email configuration
+            if not self.emails or not self.passwords or len(self.emails) != len(self.passwords):
+                logger.error("SMTP_EMAILS / SMTP_PASSWORDS not configured or length mismatch")
+                return False
+
+            # 1. Check if we need to switch to the next email
+            if self.mail_counter >= self.MAX_THRESHOLD:
+                self.current_email_index += 1
+                self.mail_counter = 0
+
+                if self.current_email_index >= len(self.emails):
+                    self.current_email_index = 0
+
+                logger.info(f"🔄 Limit reached! Switching to email #{self.current_email_index + 1}: {self.emails[self.current_email_index]}")
+
+            # 2. Select current credentials
+            current_user = self.emails[self.current_email_index]
+            current_pass = self.passwords[self.current_email_index]
+
             smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
             smtp_port = int(os.getenv("SMTP_PORT", 587))
-            smtp_email = os.getenv("SMTP_EMAIL")
-            smtp_password = os.getenv("SMTP_PASSWORD")
-            
-            if not all([smtp_email, smtp_password]):
-                logger.error("SMTP credentials not configured")
-                return False
-            
-            # Create email message
+
+            # Create message
             message = MIMEMultipart("alternative")
             message["Subject"] = "🔐 Your Discord Verification Code"
-            message["From"] = smtp_email
+            message["From"] = current_user
             message["To"] = email
-            
+
             # Plain text version
             text = f"""
 Hello {name},
@@ -264,7 +293,7 @@ If you did not request this code, please ignore this email.
 Best regards,
 Mind Matrix Team
             """
-            
+
             # HTML version
             html = f"""
 <!DOCTYPE html>
@@ -293,25 +322,27 @@ Mind Matrix Team
 </body>
 </html>
             """
-            
+
             message.attach(MIMEText(text, "plain"))
             message.attach(MIMEText(html, "html"))
-            
-            # Send email
+
+            # 3. Send the email
             await aiosmtplib.send(
                 message,
                 hostname=smtp_host,
                 port=smtp_port,
-                username=smtp_email,
-                password=smtp_password,
+                username=current_user,
+                password=current_pass,
                 start_tls=True
             )
-            
-            logger.info(f"OTP email sent to {email}")
+
+            # 4. Increment the counter after a successful send
+            self.mail_counter += 1
+            logger.info(f"✅ OTP sent to {email} | {current_user} usage: {self.mail_counter}/{self.MAX_THRESHOLD}")
             return True
-            
+
         except Exception as e:
-            logger.error(f"Failed to send OTP email to {email}: {e}")
+            logger.error(f"❌ Failed to send OTP email to {email} using {self.emails[self.current_email_index] if self.emails else 'N/A'}: {e}")
             return False
     
     def is_on_cooldown(self, user_id: int) -> tuple[bool, int]:
