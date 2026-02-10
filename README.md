@@ -355,3 +355,243 @@ python main.py
 ## 📄 License
 
 MIT License - Free to use and modify!
+
+
+
+# MindMatrix Discord Bot – VM Deployment & Operations Guide
+
+This README documents the **exact VM structure, commands, and operational workflow** used to deploy and run the MindMatrix Discord Bot on a **Google Cloud VM using systemd**.
+
+---
+
+## 1. VM Details
+
+* **Project ID:** `mindmatrix-455721`
+* **VM Name:** `mindmatrix-discord-bot`
+* **Zone:** `asia-south1-c`
+* **OS Login User:** `platform_clinf_com`
+* **Home Directory:**
+
+```bash
+/home/platform_clinf_com
+```
+
+---
+
+## 2. Directory Structure on VM
+
+```text
+/home/platform_clinf_com/
+├── discord-edtech-bot-Updated/
+│   ├── discord-edtech-bot-Updated/
+│   │   ├── main.py
+│   │   ├── config.py              # gitignored (manual on VM)
+│   │   ├── database.py
+│   │   ├── import_csv.py
+│   │   ├── requirements.txt
+│   │   ├── .env                    # gitignored (manual on VM)
+│   │   ├── venv/
+│   │   ├── data/
+│   │   │   └── *.db
+│   │   ├── logs/
+│   │   └── src/
+│   │       └── cogs/
+│   └── .git/
+```
+
+---
+
+## 3. Python Environment Setup
+
+```bash
+cd ~/discord-edtech-bot-Updated/discord-edtech-bot-Updated
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+---
+
+## 4. Configuration Files (Important)
+
+### 4.1 `config.py`
+
+* **NOT committed to Git**
+* Exists manually on VM
+* Used like:
+
+```python
+import config
+config.BOT_PREFIX
+```
+
+### 4.2 `.env`
+
+* Loaded using `python-dotenv`
+* Example variables:
+
+```env
+BOT_TOKEN=xxxxx
+SMTP_EMAIL=xxxxx
+SMTP_PASSWORD=xxxxx
+```
+
+---
+
+## 5. systemd Service Configuration
+
+### Service File Location
+
+```bash
+/etc/systemd/system/mindmatrix-discord-bot.service
+```
+
+### Service File Contents
+
+```ini
+[Unit]
+Description=MindMatrix Discord Bot
+After=network.target
+
+[Service]
+User=platform_clinf_com
+WorkingDirectory=/home/platform_clinf_com/discord-edtech-bot-Updated/discord-edtech-bot-Updated
+EnvironmentFile=/home/platform_clinf_com/discord-edtech-bot-Updated/discord-edtech-bot-Updated/.env
+ExecStart=/home/platform_clinf_com/discord-edtech-bot-Updated/discord-edtech-bot-Updated/venv/bin/python main.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+---
+
+## 6. systemd Commands (Daily Use)
+
+### Start Bot
+
+```bash
+sudo systemctl start mindmatrix-discord-bot
+```
+
+### Stop Bot
+
+```bash
+sudo systemctl stop mindmatrix-discord-bot
+```
+
+### Restart Bot (Most Used)
+
+```bash
+sudo systemctl restart mindmatrix-discord-bot
+```
+
+### Check Status
+
+```bash
+sudo systemctl status mindmatrix-discord-bot
+```
+
+### View Logs (Live)
+
+```bash
+journalctl -u mindmatrix-discord-bot -f
+```
+
+---
+
+## 7. Git Deployment Workflow (IMPORTANT)
+
+### On Local Machine
+
+```bash
+git add .
+git commit -m "message"
+git push origin main
+```
+
+### On VM (Deployment)
+
+```bash
+cd ~/discord-edtech-bot-Updated/discord-edtech-bot-Updated
+git fetch origin
+git reset --hard origin/main
+sudo systemctl restart mindmatrix-discord-bot
+```
+
+⚠️ **Never use `git pull` with merge or rebase on the VM**
+
+---
+
+## 8. Database Operations
+
+### Stop Bot Before DB Changes
+
+```bash
+sudo systemctl stop mindmatrix-discord-bot
+```
+
+### Backup Database
+
+```bash
+cp data/database.db data/database_backup_$(date +%F_%H-%M-%S).db
+```
+
+### Run DB Init / Migration
+
+```bash
+source venv/bin/activate
+python database.py
+```
+
+### Restart Bot
+
+```bash
+sudo systemctl start mindmatrix-discord-bot
+```
+
+---
+
+## 9. Process Verification
+
+### Ensure Single Bot Instance
+
+```bash
+ps aux | grep main.py
+```
+
+Expected: **Only one python process** (ignore grep line).
+
+---
+
+## 10. What NOT To Do (Critical Rules)
+
+* ❌ Do NOT run `python main.py` manually on VM
+* ❌ Do NOT commit `config.py` or `.env`
+* ❌ Do NOT run multiple bots simultaneously
+* ❌ Do NOT edit prod code without restarting systemd service
+
+---
+
+## 11. Health Check (Expected Logs)
+
+On successful start, logs should show:
+
+* Database initialized
+* Cogs loaded
+* Discord login successful
+* Connected to guild(s)
+* Slash commands synced
+
+---
+
+## 12. Status
+
+✅ Production-ready
+✅ Auto-restart enabled
+✅ Survives VM reboot
+
+---
+
+*Last updated: Feb 2026*
